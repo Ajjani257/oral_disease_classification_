@@ -20,7 +20,7 @@ CLASS_NAMES = [
 ]
 
 MODEL_PATH = "densenet_oral_model_improved.pth"  # 6-class improved model
-REPORTED_TEST_ACCURACY = 0.95  # Improved 6-class model
+REPORTED_TEST_ACCURACY = 0.9561  # Improved 6-class model
 
 # Risk level thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.75
