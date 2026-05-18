@@ -12,22 +12,17 @@ from torchvision import transforms
 from torchvision.models import densenet121
 
 # Class order must match the ImageFolder alphabetical order used during training.
-# 8 classes: 6 original + Non Cancer + Oral Cancer
 CLASS_NAMES = [
     "Calculus",
     "Caries",
     "Gingivitis",
     "Hypodontia",
-    "Non Cancer",
-    "Oral Cancer",
     "Tooth Discoloration",
     "Ulcers",
 ]
 
-# Switch between models:
-# MODEL_PATH = "densenet_oral_model_improved.pth"  # 6-class improved model
-MODEL_PATH = "densenet_oral_model_finetuned.pth"   # 8-class fine-tuned model
-REPORTED_TEST_ACCURACY = 0.9561  # Fine-tuned 8-class model (Phase 2, Epoch 26)
+MODEL_PATH = "densenet_oral_model_improved.pth"  # 6-class improved model
+REPORTED_TEST_ACCURACY = 0.95  # Improved 6-class model
 
 # Risk level thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.75
