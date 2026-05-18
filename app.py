@@ -1,12 +1,11 @@
 import os
 
+import matplotlib.cm as cm
 import numpy as np
 import streamlit as st
 import torch
 import torch.nn as nn
 from PIL import Image
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import show_cam_on_image
 from torchvision import transforms
 from torchvision.models import densenet121
 
@@ -98,20 +97,62 @@ def predict_image(model: nn.Module, image: Image.Image) -> tuple[str, float, tor
 
 
 def generate_gradcam(model: CustomDenseNet, image: Image.Image) -> np.ndarray:
-    """Generate Grad-CAM heatmap for the given image."""
+    """
+    Generate Grad-CAM heatmap using pure PyTorch hooks + matplotlib.
+    No cv2 or pytorch_grad_cam required.
+    """
     input_tensor = preprocess_image(image)
-    rgb_img = get_display_image(image)
+    rgb_img = get_display_image(image)  # float32 [0,1], shape (224,224,3)
+
+    activations: list[torch.Tensor] = []
+    gradients: list[torch.Tensor] = []
+
+    def forward_hook(module, input, output):
+        # Clone to avoid inplace ReLU conflict with DenseNet's autograd graph
+        activations.append(output.clone())
+
+    def backward_hook(module, grad_input, grad_output):
+        gradients.append(grad_output[0].detach())
 
     # Target the last DenseBlock's final norm layer for Grad-CAM
     target_layer = model.model.features.norm5
+    fh = target_layer.register_forward_hook(forward_hook)
+    # register_backward_hook (not full_backward_hook) is compatible with DenseNet inplace ops
+    bh = target_layer.register_backward_hook(backward_hook)
 
-    cam = GradCAM(model=model, target_layers=[target_layer])
-    grayscale_cam = cam(input_tensor=input_tensor, targets=None)  # None = use top predicted class
-    grayscale_cam = grayscale_cam[0, :]
+    # Forward pass (with grad enabled)
+    model.eval()
+    output = model(input_tensor)
+    pred_class = output.argmax(dim=1).item()
 
-    # Overlay heatmap on original image
-    cam_image = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
-    return cam_image
+    # Backward pass for the predicted class
+    model.zero_grad()
+    output[0, pred_class].backward()
+
+    fh.remove()
+    bh.remove()
+
+    acts = activations[0].detach()   # (1, C, H, W)
+    grads = gradients[0]              # (1, C, H, W)
+
+    # Global average pool the gradients → channel weights
+    weights = grads.mean(dim=(2, 3), keepdim=True)  # (1, C, 1, 1)
+    cam = (weights * acts).sum(dim=1).squeeze()      # (H, W)
+    cam = torch.relu(cam).numpy()
+
+    # Normalize to [0, 1]
+    if cam.max() > 0:
+        cam = cam / cam.max()
+
+    # Upsample to 224×224 using PIL
+    cam_pil = Image.fromarray((cam * 255).astype(np.uint8)).resize((224, 224), Image.BILINEAR)
+    cam_np = np.array(cam_pil, dtype=np.float32) / 255.0
+
+    # Apply jet colormap and blend with original image
+    colormap = cm.get_cmap("jet")
+    heatmap = colormap(cam_np)[:, :, :3].astype(np.float32)  # drop alpha
+    blended = np.clip(0.4 * heatmap + 0.6 * rgb_img, 0.0, 1.0)
+    return (blended * 255).astype(np.uint8)
 
 
 def get_risk_level(confidence: float, predicted_class: str) -> tuple[str, str, str]:
